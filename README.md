@@ -2,4 +2,6 @@
 Exercises of book functional programming in Scala
 
 Package info:
-- datastructures: chapter 3
+- datastructures: Chapter 3, and Chapter 4
+- lazyeval: Chapter 5
+
