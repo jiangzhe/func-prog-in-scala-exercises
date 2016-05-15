@@ -86,7 +86,4 @@ object Future {
   def props[A,B,C](es: ExecutorService, holder: AssistResultHolder[A,B], f: (A,B) => C, cb: C => Unit) =
     Props(classOf[AssistActor[A,B,C]], es, holder, f, cb)
 
-
-
-
 }

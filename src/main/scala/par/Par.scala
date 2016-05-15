@@ -38,6 +38,8 @@ object Par {
     })
   }
 
+  def run[A](es: ExecutorService)(f: Par[A]): A = f(es).get
+
   def map2timeout[A,B,C](a: Par[A], b: Par[B])(f: (A,B) => C)(timeout: Long, units: TimeUnit): Par[C] = (es: ExecutorService) => {
     val af = a(es)
     val bf = b(es)
@@ -79,5 +81,34 @@ object Par {
       ls.foldRight(List.empty[A])((a, b) => if (a._1) a._2 :: b else b)
     )
   }
+
+  def choice[A](cond: Par[Boolean])(t: Par[A], f: Par[A]): Par[A] = es =>
+    if (run(es)(cond)) t(es) else f(es)
+
+  def choiceN[A](n: Par[Int])(choices: List[Par[A]]): Par[A] = es => {
+    val idx = run(es)(n)
+    choices(idx)(es)
+  }
+
+  def choiceMap[K,V](key: Par[K])(choices: Map[K, Par[V]]): Par[V] = es  => {
+    val k = run(es)(key)
+    choices(k)(es)
+  }
+
+  def chooser[A,B](pa: Par[A])(choices: A => Par[B]): Par[B] = es => {
+    val a = run(es)(pa)
+    choices(a)(es)
+  }
+
+  def choice2[A](cond: Par[Boolean])(t: Par[A], f: Par[A]): Par[A] = chooser(cond)(if (_) t else f)
+
+  def choiceN2[A](n: Par[Int])(choices: List[Par[A]]): Par[A] = chooser(n)(choices)
+
+  def join[A](a: Par[Par[A]]): Par[A] = es => {
+    val pa = run(es)(a)
+    pa(es)
+  }
+
+  def flatMap[A,B](a: Par[A])(f: A => Par[B]): Par[B] = join(map(a)(f))
 
 }
