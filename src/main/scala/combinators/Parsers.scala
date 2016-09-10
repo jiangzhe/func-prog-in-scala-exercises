@@ -38,14 +38,7 @@ trait Parsers[ParseError, Parser[+_]] {
   def opt[A](p: Parser[A]): Parser[Option[A]] = or(p.map(Option(_)), succeed(None))
   def rep[A, B](p: Parser[A], s: Parser[B]): Parser[List[A]] = or(rep1(p, s), succeed(Nil))
   def rep1[A, B](p: Parser[A], s: Parser[B]): Parser[List[A]] = map2(p, many(ignoreLeft(s, p)))(_ :: _)
-
-
-
-
-
-
-
-
+  def kv[K, S, V](k: Parser[K], s: Parser[S], v: => Parser[V]): Parser[(K, V)] = product(ignoreRight(k, s), v)
 
 
   case class ParserOps[A](p: Parser[A]) {
@@ -71,14 +64,36 @@ object JSON {
   case class JArray(get: IndexedSeq[JSON]) extends JSON
   case class JObject(get: Map[String, JSON]) extends JSON
 
-//  def jsonParser[Err, Parser[+_]](P: Parsers[Err, Parser]): Parser[JSON] = {
-//    import P._
-//
-//    val spaces = char(' ').many.slice
-//    val digit = regex("""(0|[1-9][0-9]*)(\.[0-9]+)?""".r)
-//    val whitespaces = regex("""[ \t\n]+""".r)
-//    val lq = string("{")
-//    val rq = string("}")
-//    val nullParse: Parser[JSON] =
-//  }
+  def jsonParser[Err, Parser[+_]](P: Parsers[Err, Parser]): Parser[JSON] = {
+    import P._
+
+    val digit: Parser[JNumber] = regex("""(0|[1-9][0-9]*)(\.[0-9]+)?""".r).map(s => JNumber(s.toDouble))
+    val word = regex("""[a-zA-Z0-9_]+""".r)
+    val str: Parser[JString] = char('"') ~> regex("""[^"]*""".r) <~ char('"') map JString
+    val nul: Parser[JNull.type] = string("null").map(_ => JNull)
+    val bol: Parser[JBool] = or(string("true"), string("false")).map {
+      case "true" => JBool(true)
+      case "false" => JBool(false)
+    }
+    val whitespaces = regex("""[ \t\n]+""".r)
+    val colon = string(":")
+    val colonSep = whitespaces ~> colon <~ whitespaces
+    val comma = string(",")
+    val commaSep = whitespaces ~> comma <~ whitespaces
+    val key: Parser[String] = char('"') ~> word <~ char('"')
+
+    object PImpl {
+      def nullParse: Parser[(String, JNull.type)] = kv(key, colonSep, nul)
+      def numberParse: Parser[(String, JNumber)] = kv(key, colonSep, digit)
+      def stringParse: Parser[(String, JString)] = kv(key, colonSep, str)
+      def boolParse: Parser[(String, JBool)] = kv(key, colonSep, bol)
+      def arrayParse: Parser[(String, JArray)] =
+        kv(key, colonSep, char('[') ~> rep(jsonParser(P), commaSep) <~ char(']')) map (tp => (tp._1, JArray(tp._2.toVector)))
+      def obj: Parser[JObject] =
+        char('{') ~> rep(nullParse | numberParse | stringParse |
+          boolParse | arrayParse | objParse, comma) <~ char('}') map (ls => JObject(ls.toMap))
+      def objParse: Parser[(String, JObject)] = kv(key, colonSep, obj)
+    }
+    PImpl.obj
+  }
 }
