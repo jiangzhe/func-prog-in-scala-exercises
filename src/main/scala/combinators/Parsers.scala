@@ -19,7 +19,7 @@ trait Parsers[Parser[+_]] {
   // primitive
   def or[A](s1: Parser[A], s2: => Parser[A]): Parser[A]
   def listOfN[A](n: Int, p: Parser[A]): Parser[List[A]] = if (n == 0) succeed(Nil) else map2(p, listOfN(n-1, p))((a, b) => a :: b)
-  def many[A](p: Parser[A]): Parser[List[A]] = map2(p, many(p))(_ :: _) or succeed(List.empty[A])
+  def many[A](p: Parser[A]): Parser[List[A]] = map2(p, p.many)(_ :: _).attempt or succeed(List.empty[A])
   def map[A, B](a: Parser[A])(f: A => B): Parser[B] = flatMap(a)(ar => succeed(f(ar)))
   def succeed[A](a: A): Parser[A] = string("") map (_ => a)
   // primitive
@@ -37,15 +37,15 @@ trait Parsers[Parser[+_]] {
   implicit def regex(r: Regex): Parser[String]
   def ignoreLeft[A, B](l: Parser[A], r: => Parser[B]): Parser[B] = map2(l, r)((ll, rr) => rr)
   def ignoreRight[A, B](l: Parser[A], r: => Parser[B]): Parser[A] = map2(l, r)((ll, rr) => ll)
-  def opt[A](p: Parser[A]): Parser[Option[A]] = or(p.map(Option(_)), succeed(None))
-  def rep[A, B](p: Parser[A], s: Parser[B]): Parser[List[A]] = or(rep1(p, s), succeed(Nil))
-  def rep1[A, B](p: Parser[A], s: Parser[B]): Parser[List[A]] = map2(p, many(ignoreLeft(s, p)))(_ :: _)
-  def kv[K, S, V](k: Parser[K], s: => Parser[S], v: => Parser[V]): Parser[(K, V)] = product(ignoreRight(k, s), v)
+  def opt[A](p: Parser[A]): Parser[Option[A]] = p.map(Option(_)).attempt | succeed(None)
+  def rep[A, B](p: => Parser[A], s: Parser[B]): Parser[List[A]] = rep1(p, s).attempt | succeed(Nil)
+  def rep1[A, B](p: => Parser[A], s: Parser[B]): Parser[List[A]] = map2(p, ignoreLeft(s, p).many)(_ :: _)
+  def kv[K, S, V](k: => Parser[K], s: Parser[S], v: => Parser[V]): Parser[(K, V)] = product(ignoreRight(k, s), v)
 
   // primitive
   def fail[A](p: Parser[A]): Parser[A]
   // primitive
-  def attempt[A](p: => Parser[A]): Parser[A]
+  def attempt[A](p: Parser[A]): Parser[A]
 
 
   // error handling
@@ -64,8 +64,10 @@ trait Parsers[Parser[+_]] {
     def product[B](p2: Parser[B]): Parser[(A, B)] = self.product(p, p2)
     def many: Parser[List[A]] = self.many(p)
     def slice: Parser[String] = self.slice(p)
-    def ~>[B](p2: => Parser[B]): Parser[B] = ignoreLeft(p, p2)
-    def <~[B](p2: => Parser[B]): Parser[A] = ignoreRight(p, p2)
+    def ~>[B](p2: => Parser[B]): Parser[B] = self.ignoreLeft(p, p2)
+    def <~[B](p2: => Parser[B]): Parser[A] = self.ignoreRight(p, p2)
+    def attempt: Parser[A] = self.attempt(p)
+    def ||[B>:A](p2: Parser[B]): Parser[B] = self.or(self.attempt(p), p2)
   }
 }
 
@@ -106,29 +108,29 @@ object JSON {
     import P._
 
     object PImpl {
-      def digit: Parser[JNumber] = regex("""(0|[1-9][0-9]*)(\.[0-9]+)?""".r).map(s => JNumber(s.toDouble))
-      def word = regex("""[a-zA-Z0-9_]+""".r)
-      def str: Parser[JString] = char('"') ~> regex("""[^"]*""".r) <~ char('"') map JString
-      def nul: Parser[JNull.type] = string("null").map(_ => JNull)
-      def bol: Parser[JBool] = or(attempt(string("true")), string("false")).map {
+      val digit: Parser[JNumber] = regex("""(0|[1-9][0-9]*)(\.[0-9]+)?""".r).map(s => JNumber(s.toDouble))
+      val word = regex("""[a-zA-Z0-9_]+""".r)
+      val str: Parser[JString] = char('"') ~> regex("""[^"]*""".r) <~ char('"') map JString
+      val nul: Parser[JNull.type] = string("null").map(_ => JNull)
+      val bol: Parser[JBool] = (attempt(string("true")) | string("false")).map {
         case "true" => JBool(true)
         case "false" => JBool(false)
       }
-      def whitespaces = regex("""[ \t\n]*""".r)
-      def colonSep = opt(whitespaces) ~> string(":") <~ opt(whitespaces)
-      def commaSep = opt(whitespaces) ~> string(",") <~ opt(whitespaces)
-      def lbc = opt(whitespaces) ~> char('{') <~ opt(whitespaces)
-      def rbc = opt(whitespaces) ~> char('}') <~ opt(whitespaces)
-      def lbk = opt(whitespaces) ~> char('[') <~ opt(whitespaces)
-      def rbk = opt(whitespaces) ~> char(']') <~ opt(whitespaces)
-      def sq = string("'")
-      def dq = char('"')
+      val whitespaces = regex("""[ \t\n]*""".r)
+      val colonSep = opt(whitespaces) ~> string(":") <~ opt(whitespaces)
+      val commaSep = opt(whitespaces) ~> string(",") <~ opt(whitespaces)
+      val lbc = opt(whitespaces) ~> char('{') <~ opt(whitespaces)
+      val rbc = opt(whitespaces) ~> char('}') <~ opt(whitespaces)
+      val lbk = opt(whitespaces) ~> char('[') <~ opt(whitespaces)
+      val rbk = opt(whitespaces) ~> char(']') <~ opt(whitespaces)
+      val sq = string("'")
+      val dq = char('"')
 
 
-      def key: Parser[String] = dq ~> word <~ dq
-      def array: Parser[JArray] = lbk ~> rep(bodyForArray, commaSep) <~ rbk map (ls => JArray(ls.toVector))
+      val key: Parser[String] = dq ~> word <~ dq
+      def array: Parser[JArray] = lbk ~> rep(body, commaSep) <~ rbk map (ls => JArray(ls.toVector))
       def obj: Parser[JObject] = lbc ~> rep(
-        nullKV | numberKV | stringKV | boolKV | arrayKV | objKV, commaSep) <~ rbc map (ls => JObject(ls.toMap))
+        nullKV || numberKV || stringKV || boolKV || arrayKV || objKV, commaSep) <~ rbc map (ls => JObject(ls.toMap))
 
       def nullKV: Parser[(String, JNull.type)] = kv(key, colonSep, nul)
       def numberKV: Parser[(String, JNumber)] = kv(key, colonSep, digit)
@@ -137,11 +139,23 @@ object JSON {
       def arrayKV: Parser[(String, JArray)] = kv(key, colonSep, array)
       def objKV: Parser[(String, JObject)] = kv(key, colonSep, obj)
 
-      def body: Parser[JSON] = attempt(nul) | attempt(str) | attempt(digit) | attempt(bol) | attempt(array) | obj
+      def body: Parser[JSON] = nul || str || digit || bol || array || obj
+//      def body: Parser[JSON] = lbc ~> rep(numberKV || nullKV,commaSep) <~ rbc map (ls => JArray(ls.map(_._2).toVector))
+//      def body: Parser[JSON] = attempt(array)
+//      def body: Parser[JSON] = attempt(digit) | attempt(array)
 
-      def bodyForArray: Parser[JSON] = attempt(nul) | attempt(str) | attempt(digit) | attempt(bol) | attempt(obj) | array
+//      def body: Parser[JSON] = rep1(digit, commaSep) map (ls => JArray(ls.toVector))
+
+//      def body: Parser[JSON] = digit
+
+//      def body: Parser[JSON] = char('a').many map (ls => JNumber(ls.size))
+
+//      def bodyForArray: Parser[JSON] = attempt(nul) | attempt(str) | attempt(digit) | attempt(bol) | attempt(obj) | array
+//      def bodyForArray: Parser[JSON] = attempt(digit)
     }
+
     PImpl.body
+
   }
 }
 
@@ -173,8 +187,6 @@ object MyParser {
 
   case class Success[+A](get: A, charConsumed: Int) extends Result[A]
   case class Failure(get: ParseError, isCommitted: Boolean) extends Result[Nothing]
-
-
 }
 
 
@@ -182,7 +194,7 @@ object MyParsers extends Parsers[MyParser] {
   def string(s: String): MyParser[String] =
     (loc: Location) =>
       if (loc.currStr.startsWith(s))
-        Success(s, loc.offset + s.length)
+        Success(s, s.length)
       else
         Failure(loc.toError("Expected: " + s), true)
 
@@ -212,7 +224,7 @@ object MyParsers extends Parsers[MyParser] {
   def fail[A](p: MyParser[A]): MyParser[A] =
     s => Failure(ParseError(List((s, "direct failure"))), true)
 
-  def attempt[A](p: => MyParser[A]): MyParser[A] = s => p(s).uncommit
+  def attempt[A](p: MyParser[A]): MyParser[A] = s => p(s).uncommit
 
   def or[A](x: MyParser[A], y: => MyParser[A]): MyParser[A] =
     s => x(s) match {
@@ -226,28 +238,32 @@ object MyParsers extends Parsers[MyParser] {
       case e @ Failure(_, _) => e
     }
 
-
   def run[A](p: MyParser[A])(input: String): Result[A] = p(Location(input, 0))
 }
 
 
 object Run {
   def main(args: Array[String]): Unit = {
-//    val json = """{"hello":"world"}"""
-
-//    val json = """{"hello":null}"""
-
-    def parse(json: String): Result[JSON] = MyParsers.run(JSON.jsonParser(MyParsers))(json)
-//    println(parse("null"))
-//    println(parse("1"))
-//    println(parse("100"))
-//    println(parse("123.45"))
-//    println(parse("\"hello\""))
-//    println(parse("true"))
-//    println(parse("false"))
+    def parse(json: String): Result[JSON] = MyParsers.run(JSON.jsonParser(MyParsers))(json) match {
+      case e @ Failure(_, _) => e
+      case r @ Success(a, n) =>
+        if (n == json.length) r else Failure(ParseError(List((Location(json, n), "Extra characters unparsed"))), true)
+    }
+//    def parse(json: String): Result[JSON] = MyParsers.run(JSON.jsonParser(MyParsers))(json)
+    println(parse("null"))
+    println(parse("100"))
+    println(parse("123.45"))
+    println(parse("\"hello\""))
+    println(parse("true"))
+    println(parse("false"))
     println(parse("[1,2,3]"))
     println(parse("""["a","b","c"]"""))
     println(parse("""[true,false]"""))
     println(parse("""[null,"a",123.0]"""))
+    println(parse("""{}"""))
+    println(parse("""{"a":1}"""))
+    println(parse("""{"a":{},"b":false}"""))
+    println(parse("{\"a\":null,\"b\":null}"))
+    println(parse("{}aabbcc"))
   }
 }
