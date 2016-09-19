@@ -1,6 +1,6 @@
 package combinators
 
-import combinators.MyParser.{Failure, Success, Result, MyParser}
+import combinators.MyParser.{Failure, Success, Result, Parser}
 
 import scala.util.matching.Regex
 
@@ -161,7 +161,7 @@ object JSON {
 
 
 object MyParser {
-  type MyParser[+A] = Location => Result[A]
+  type Parser[+A] = Location => Result[A]
 
   trait Result[+A] {
     def mapError(f: ParseError => ParseError): Result[A] = this match {
@@ -190,15 +190,15 @@ object MyParser {
 }
 
 
-object MyParsers extends Parsers[MyParser] {
-  def string(s: String): MyParser[String] =
+object MyParsers extends Parsers[Parser] {
+  def string(s: String): Parser[String] =
     (loc: Location) =>
       if (loc.currStr.startsWith(s))
         Success(s, s.length)
       else
         Failure(loc.toError("Expected: " + s), true)
 
-  def regex(r: Regex): MyParser[String] =
+  def regex(r: Regex): Parser[String] =
     (loc: Location) => {
       val found = r.findPrefixMatchOf(loc.currStr)
       if (found.isDefined)
@@ -207,38 +207,38 @@ object MyParsers extends Parsers[MyParser] {
         Failure(loc.toError("Regex match error: " + r), true)
     }
 
-  override def succeed[A](a: A): MyParser[A] = (loc: Location) => Success(a, 0)
+  override def succeed[A](a: A): Parser[A] = (loc: Location) => Success(a, 0)
 
-  def slice[A](p: MyParser[A]): MyParser[String] =
+  def slice[A](p: Parser[A]): Parser[String] =
     s => p(s) match {
       case Success(a, n) => Success(s.input.substring(s.offset, n), n)
       case e @ Failure(_, _) => e
     }
 
-  def scope[A](msg: String)(p: MyParser[A]): MyParser[A] =
+  def scope[A](msg: String)(p: Parser[A]): Parser[A] =
     s => p(s).mapError(_.push(s, msg))
 
-  def label[A](msg: String)(p: MyParser[A]): MyParser[A] =
+  def label[A](msg: String)(p: Parser[A]): Parser[A] =
     s => p(s).mapError(_.label(msg))
 
-  def fail[A](p: MyParser[A]): MyParser[A] =
+  def fail[A](p: Parser[A]): Parser[A] =
     s => Failure(ParseError(List((s, "direct failure"))), true)
 
-  def attempt[A](p: MyParser[A]): MyParser[A] = s => p(s).uncommit
+  def attempt[A](p: Parser[A]): Parser[A] = s => p(s).uncommit
 
-  def or[A](x: MyParser[A], y: => MyParser[A]): MyParser[A] =
+  def or[A](x: Parser[A], y: => Parser[A]): Parser[A] =
     s => x(s) match {
       case Failure(e, false) => y(s)
       case r => r
     }
 
-  def flatMap[A, B](f: MyParser[A])(g: A => MyParser[B]): MyParser[B] =
+  def flatMap[A, B](f: Parser[A])(g: A => Parser[B]): Parser[B] =
     s => f(s) match {
       case Success(a, n) => g(a)(s.advanceBy(n)).addCommit(n != 0).advanceSuccess(n)
       case e @ Failure(_, _) => e
     }
 
-  def run[A](p: MyParser[A])(input: String): Result[A] = p(Location(input, 0))
+  def run[A](p: Parser[A])(input: String): Result[A] = p(Location(input, 0))
 }
 
 
