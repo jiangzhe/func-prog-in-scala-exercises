@@ -4,7 +4,6 @@ import combinators.MyParser.Parser
 import combinators.MyParsers
 import par.Par
 import par.Par.Par
-import par.Par.Par
 
 /**
   * Mon
@@ -23,7 +22,19 @@ trait Mon[F[_]] extends Functor[F] {
   def map2[A, B, C](fa: F[A], fb: F[B])(f: (A, B) => C): F[C] =
     flatMap(fa)(a => map(fb)(b => f(a, b)))
 
+  def sequence[A](lma: List[F[A]]): F[List[A]] = lma.foldRight(unit(List.empty[A]))((fa, b) => map2(fa, b)(_ :: _))
 
+  def traverse[A, B](la: List[A])(f: A => F[B]): F[List[B]] = sequence(la.map(f))
+
+  def replicateM[A](n: Int, ma: F[A]): F[List[A]] = sequence(List.fill(n)(ma))
+
+  def product[A, B](ma: F[A], mb: F[B]): F[(A, B)] = map2(ma, mb)((_, _))
+
+  def filterM[A](ms: List[A])(f: A => F[Boolean]): F[List[A]] = {
+//    def g: A => F[Option[A]] = (a: A) => map(f(a))(if (_) Some(a) else None)
+//    map(sequence(ms.map(a => g(a))))(ls => ls.flatten)
+    sequence(ms.map(a => map(f(a))(if (_) List(a) else Nil)).flatten)
+  }
 }
 
 trait Functor[F[_]] {
@@ -73,4 +84,6 @@ object Monad {
 
     override def unit[A](a: A): List[A] = List(a)
   }
+
+
 }
