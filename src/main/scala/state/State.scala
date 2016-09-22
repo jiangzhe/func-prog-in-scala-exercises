@@ -42,4 +42,9 @@ case class State[S,+A](run: S => (A, S)) {
       f(a).run(sa)
   })
 
+  def getState: State[S, S] = State({
+    s => (s, s)
+  })
+
+  def setState(s: => S): State[S, Unit] = State({ _ => ((), s)})
 }

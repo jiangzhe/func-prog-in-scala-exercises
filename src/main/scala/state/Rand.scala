@@ -86,5 +86,4 @@ object Rand {
 
   def rollDie: Rand[Int] = map(nonNegativeLessThan(6))(_ + 1)
 
-
 }

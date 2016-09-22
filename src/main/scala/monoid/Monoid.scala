@@ -100,7 +100,7 @@ object Monoid {
 
   def bag[A](as: IndexedSeq[A]): Map[A, Int] = {
     val M: Monoid[Map[A, Int]] = mapMergeMonoid(intAddition)
-    foldMap(as, M)((a: A) => Map(a, 1))
+    foldMap(as, M)((a: A) => Map((a, 1)))
   }
 
   val m = productMonoid(intAddition, intAddition)
