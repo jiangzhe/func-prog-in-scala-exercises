@@ -1,5 +1,6 @@
 package monad
 
+import applicative.Applicative
 import combinators.MyParser.Parser
 import combinators.MyParsers
 import par.Par
@@ -13,23 +14,23 @@ import state.State
   * Change log:
   * 2016/9/19 - created by zhe.jiang
   */
-trait Mon[F[_]] extends Functor[F] {
+trait Mon[F[_]] extends Functor[F] with Applicative[F] {
   def flatMap[A, B](fa: F[A])(f: A => F[B]): F[B]
 
-  def unit[A](a: A): F[A]
+  def unit[A](a: => A): F[A]
 
-  def map[A, B](fa: F[A])(f: A => B): F[B] = flatMap(fa)(a => unit(f(a)))
+  override def map[A, B](fa: F[A])(f: A => B): F[B] = flatMap(fa)(a => unit(f(a)))
 
   def map2[A, B, C](fa: F[A], fb: F[B])(f: (A, B) => C): F[C] =
     flatMap(fa)(a => map(fb)(b => f(a, b)))
 
-  def sequence[A](lma: List[F[A]]): F[List[A]] = lma.foldRight(unit(List.empty[A]))((fa, b) => map2(fa, b)(_ :: _))
+  override def sequence[A](lma: List[F[A]]): F[List[A]] = lma.foldRight(unit(List.empty[A]))((fa, b) => map2(fa, b)(_ :: _))
 
-  def traverse[A, B](la: List[A])(f: A => F[B]): F[List[B]] = sequence(la.map(f))
+  override def traverse[A, B](la: List[A])(f: A => F[B]): F[List[B]] = sequence(la.map(f))
 
-  def replicateM[A](n: Int, ma: F[A]): F[List[A]] = sequence(List.fill(n)(ma))
+  override def replicateM[A](n: Int, ma: F[A]): F[List[A]] = sequence(List.fill(n)(ma))
 
-  def product[A, B](ma: F[A], mb: F[B]): F[(A, B)] = map2(ma, mb)((_, _))
+  override def product[A, B](ma: F[A], mb: F[B]): F[(A, B)] = map2(ma, mb)((_, _))
 
   def filterM[A](ms: List[A])(f: A => F[Boolean]): F[List[A]] = {
     map(sequence(ms.map(a => map2(f(a), unit(a))((_, _)))))(ls => ls.filter(_._1).map(_._2))
@@ -62,7 +63,7 @@ object Monad {
 
     override def flatMap[A, B](fa: Par[A])(f: (A) => Par[B]): Par[B] = Par.flatMap(fa)(f)
 
-    override def unit[A](a: A): Par[A] = Par.unit(a)
+    override def unit[A](a: => A): Par[A] = Par.unit(a)
   }
 
   val parserMonad: Mon[Parser] = new Mon[Parser] {
@@ -70,14 +71,14 @@ object Monad {
     override def flatMap[A, B](fa: Parser[A])(f: (A) => Parser[B]): Parser[B] =
       MyParsers.flatMap(fa)(f)
 
-    override def unit[A](a: A): Parser[A] = MyParsers.succeed(a)
+    override def unit[A](a: => A): Parser[A] = MyParsers.succeed(a)
   }
 
   val optionMonad: Mon[Option] = new Mon[Option] {
 
     override def flatMap[A, B](fa: Option[A])(f: (A) => Option[B]): Option[B] = fa.flatMap(f)
 
-    override def unit[A](a: A): Option[A] = Option(a)
+    override def unit[A](a: => A): Option[A] = Option(a)
   }
 
   val streamMonad: Mon[Stream] = new Mon[Stream] {
@@ -85,14 +86,14 @@ object Monad {
     override def flatMap[A, B](fa: Stream[A])(f: (A) => Stream[B]): Stream[B] =
       fa.flatMap(f)
 
-    override def unit[A](a: A): Stream[A] = Stream(a)
+    override def unit[A](a: => A): Stream[A] = Stream(a)
   }
 
   val listMonad: Mon[List] = new Mon[List] {
 
     override def flatMap[A, B](fa: List[A])(f: (A) => List[B]): List[B] = fa.flatMap(f)
 
-    override def unit[A](a: A): List[A] = List(a)
+    override def unit[A](a: => A): List[A] = List(a)
   }
 
   // monad提供了一个引入和绑定变量的上下文，同时执行了变量替换
@@ -100,7 +101,7 @@ object Monad {
 
     override def flatMap[A, B](fa: Id[A])(f: (A) => Id[B]): Id[B] = f(fa.value)
 
-    override def unit[A](a: A): Id[A] = Id(a)
+    override def unit[A](a: => A): Id[A] = Id(a)
   }
 
   // (A, S)
@@ -113,18 +114,18 @@ object Monad {
           f(a1).run(s1)
       })
 
-    override def unit[A](a: A): IntState[A] = State((a, _))
+    override def unit[A](a: => A): IntState[A] = State((a, _))
   }
 
   object iStateMonad extends Mon[({type IntState[A] = State[Int, A]})#IntState] {
-    override def unit[A](a: A): IntState[A] = State((a, _))
+    override def unit[A](a: => A): IntState[A] = State((a, _))
     override def flatMap[A, B](fa: IntState[A])(f: A => IntState[B]): IntState[B] = fa.flatMap(f)
   }
 
   def stateMonad[S] = new Mon[({type F[X] = State[S, X]})#F] {
     override def flatMap[A, B](fa: State[S, A])(f: (A) => State[S, B]): State[S, B] = fa.flatMap(f)
 
-    override def unit[A](a: A): State[S, A] = State((a, _))
+    override def unit[A](a: => A): State[S, A] = State((a, _))
 
   }
 
@@ -136,6 +137,29 @@ object Monad {
       n <- acc.getState
       _ <- acc.setState(n + 1)
     } yield (n, a) :: xs).run(0)._1.reverse
+
+  def eitherMonad[E]: Mon[({type F[X] = Either[E, X]})#F] = new Mon[({type F[X] = Either[E, X]})#F] {
+
+    override def flatMap[A, B](fa: Either[E, A])(f: (A) => Either[E, B]): Either[E, B] =
+      fa match {
+        case Left(e) => Left(e)
+        case r @ Right(a) => f(a)
+      }
+
+    override def unit[A](a: => A): Either[E, A] = Right(a)
+  }
+
+//  implicit class MonExt[F[_]](val F: Mon[F]) {
+//    def compose[G[_]](G: Mon[G]): Mon[({type H[X] = F[G[X]]})#H] =
+//      new Mon[({type H[X] = F[G[X]]})#H] {
+//
+//        override def flatMap[A, B](fa: F[G[A]])(f: (A) => F[G[B]]): F[G[B]] =
+//          F.flatMap(fa)(ga => G.flatMap(ga)(f))
+//
+//        override def unit[A](a: A): F[G[A]] = F.unit(G.unit(a))
+//      }
+//  }
+
 
 }
 
@@ -152,7 +176,7 @@ object Reader {
           f(a1).run(r)
       })
 
-    override def unit[A](a: A): Reader[R, A] = Reader(_ => a)
+    override def unit[A](a: => A): Reader[R, A] = Reader(_ => a)
   }
 }
 
@@ -163,3 +187,4 @@ object Run {
     println(arr)
   }
 }
+
