@@ -65,7 +65,7 @@ trait Traverse[F[_]] {
     mapAccum(fa, z)((a, s) => (f(s, a), f(s, a)))._2
 
   def zip[A, B](fa: F[A], fb: F[B]): F[(A, B)] = mapAccum(fa, toList(fb)){
-    case (a, Nil) => sys.error("zip: Imcompatible shapes")
+    case (a, Nil) => sys.error("zip: Incompatible shapes")
     case (a, b :: bs) => ((a, b), bs)
   }._1
 
@@ -84,10 +84,13 @@ trait Traverse[F[_]] {
   import Applicative.ApplicativeExt
 
   def fuse[G[_], H[_], A, B](fa: F[A])(g: A => G[B], h: A => H[B])
-                            (G: Applicative[G], H: Applicative[H]): (G[F[B]], H[F[B]]) =
+                            (G: Applicative[G], H: Applicative[H]): (G[F[B]], H[F[B]]) = {
+    implicit val GHA = G.productA(H)
     traverse[({type M[X] = (G[X], H[X])})#M, A, B](fa)(a =>
       (g(a), h(a))
-    )(G.product(H))
+    )(GHA)
+  }
+
 }
 
 object Traverse {
@@ -176,10 +179,13 @@ object Traverse {
   implicit class TraverseExt4[F[_]](val F: Traverse[F]) {
     def composeM[F[_], G[_]](F: Mon[F], G: Mon[G], T: Traverse[G]): Mon[({type H[X] = F[G[X]]})#H] =
       new Mon[({type H[X] = F[G[X]]})#H] {
-        override def flatMap[A, B](fga: F[G[A]])(f: (A) => F[G[B]]): F[G[B]] =
+        override def flatMap[A, B](fga: F[G[A]])(f: (A) => F[G[B]]): F[G[B]] = {
+          implicit val FA: Applicative[F] = F
+          implicit val GA: Applicative[G] = G
           F.flatMap(fga)(ga => // to fgb
             F.map(T.traverse(ga)(a => f(a)))(ggb => G.join(ggb))
           )
+        }
 
 
         override def unit[A](a: => A): F[G[A]] = F.unit(G.unit(a))

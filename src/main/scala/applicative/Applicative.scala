@@ -75,7 +75,7 @@ object Applicative {
   }
 
   implicit class ApplicativeExt[F[_]](val F: Applicative[F]) {
-    def product[G[_]](G: Applicative[G]): Applicative[({type H[X] = (F[X], G[X])})#H] =
+    def productA[G[_]](G: Applicative[G]): Applicative[({type H[X] = (F[X], G[X])})#H] =
       new Applicative[({type H[X] = (F[X], G[X])})#H] {
         override def map2[A, B, C](fa: (F[A], G[A]), fb: (F[B], G[B]))(f: (A, B) => C): (F[C], G[C]) = {
           (F.map2(fa._1, fb._1)(f), G.map2(fa._2, fb._2)(f))
@@ -95,8 +95,6 @@ object Applicative {
       }
   }
 }
-
-
 
 sealed trait Validation[+E, +A]
 case class Failure[E](head: E, tail: Vector[E] = Vector()) extends Validation[E, Nothing]
