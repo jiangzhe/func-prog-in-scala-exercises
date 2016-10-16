@@ -8,3 +8,7 @@ Package info:
 - par: Chapter 7
 - combinators: Chapter 9
 - monoid: Chapter 10
+- monad: Chapter 11
+- applicative: Chapter 12
+- iomonad: Chapter 13 - Encounter Intellij Idea hung up when writing free monad
+- mutate: Chapter 14
